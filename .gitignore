@@ -1,0 +1,14 @@
+# Personal data — never published
+profile/*
+!profile/profile.example.yaml
+!profile/facts.example.md
+.env
+data/
+SPEC.md
+web/
+
+# Build
+node_modules/
+.next/
+next-env.d.ts
+__pycache__/
