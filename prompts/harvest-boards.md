@@ -39,7 +39,7 @@ Page through results until a page brings nothing new or 5 pages per query, which
 1. Drop it by **title alone** if it is plainly wrong: senior/lead/manager/director, engineer/developer,
    nurse/clinical/lab technician, sales/account executive/business development, intern, accountant,
    customer service. When unsure, keep it.
-2. Skip it if it is already known: `sqlite3 -readonly data/jobs.db "select 1 from jobs where key=lower('<company>|<title>|<location>') or url='<url>'"`
+2. Skip it if it is already known: `python3 scripts/q.py "select 1 from jobs where key=lower('<company>|<title>|<location>') or url='<url>'"`
    returns a row, or it is already in today's inbox file.
 3. Open the listing (or the employer's page it links to) and capture the **full description**, copied
    from the page, never summarized, trimmed or retyped — the screener quotes it word for word. If the

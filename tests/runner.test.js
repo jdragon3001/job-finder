@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 process.env.CLAUDE_BIN = resolve('tests/fixtures/fake-claude.mjs');
+process.env.COPILOT_PY = resolve('tests/fixtures/fake-python.mjs');   // never the real job download
 const { open } = await import('../lib/store.js');
 const { start, running, needsDaily, pump } = await import('../lib/runner.js');
 
@@ -30,6 +31,29 @@ test('A daily run starts claude -p with the tool allowlist, logs output, and rec
   assert.ok(args.includes('--allowedTools') && args.includes('Bash(python3 scripts/*)'));
   assert.ok(!args.some(a => /git|rm |curl/.test(a)), 'no git/rm/curl permissions');
   assert.equal(needsDaily(db), false);
+});
+
+test('A daily run downloads and imports listings itself before Claude starts, so no tool time limit can cut it off', async () => {
+  const db = freshDb();
+  const id = start(db, 'daily');
+  await until(() => db.prepare('select finished from runs where id=?').get(id).finished);
+  const log = readFileSync(db.prepare('select log from runs where id=?').get(id).log, 'utf8');
+  const order = ['PY scripts/harvest.py --days 7', 'PY scripts/ingest.py', 'ARGS'].map(s => log.indexOf(s));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), log);
+  const args = JSON.parse(log.match(/ARGS (.*)/)[1]);
+  assert.ok(args.includes('--disallowedTools') && args.includes('Edit(scripts/**)') && args.includes('Bash(pkill *)'));
+});
+
+test('A failed download fails the run without starting Claude, so the next app open retries it', async () => {
+  const db = freshDb();
+  process.env.FAKE_PY_EXIT = '1';
+  const id = start(db, 'daily');
+  await until(() => db.prepare('select finished from runs where id=?').get(id).finished);
+  delete process.env.FAKE_PY_EXIT;
+  const row = db.prepare('select ok, log from runs where id=?').get(id);
+  assert.equal(row.ok, 0);
+  assert.ok(!readFileSync(row.log, 'utf8').includes('ARGS'));
+  assert.equal(needsDaily(db), true);
 });
 
 test('A second run of the same kind is refused while one is going', async () => {

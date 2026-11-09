@@ -21,7 +21,7 @@ execFileSync('sqlite3', [DB, `insert into jobs (key, source, url, title, company
 rmSync(SHOTS, { recursive: true, force: true }); mkdirSync(SHOTS, { recursive: true });
 
 const server = spawn('npx', ['next', 'start', '-p', String(PORT)], {
-  env: { ...process.env, JOBS_DB: DB, COPILOT_AUTORUN: '0', CLAUDE_BIN: resolve('tests/fixtures/fake-claude.mjs'), FAKE_WRITES: '1', FAKE_DOCX: '1' }, stdio: 'ignore',
+  env: { ...process.env, JOBS_DB: DB, COPILOT_AUTORUN: '0', CLAUDE_BIN: resolve('tests/fixtures/fake-claude.mjs'), COPILOT_PY: resolve('tests/fixtures/fake-python.mjs'), FAKE_WRITES: '1', FAKE_DOCX: '1' }, stdio: 'ignore',
 });
 const until = async (fn, ms = 10000) => { const t = Date.now(); for (;;) { try { if (await fn()) return; } catch {} if (Date.now() - t > ms) throw new Error('timed out'); await new Promise(r => setTimeout(r, 150)); } };
 let browser, step = '';

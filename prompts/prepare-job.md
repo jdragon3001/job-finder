@@ -4,7 +4,7 @@ She pressed **Pursue** on the job whose key is at the end of this prompt. Make e
 act on it. You write files and inbox lines; `scripts/ingest.py` is the only thing that writes the database.
 
 ## 0. Read first
-- The job: `sqlite3 -readonly -json data/jobs.db "select key, title, company, location, url, description, why, net from jobs where key='<key>'"`
+- The job: `python3 scripts/q.py --json "select key, title, company, location, url, description, why, net from jobs where key='<key>'"`
 - `profile/profile.yaml`, `profile/facts.md` (the only source of facts about her — never claim anything not in it),
   and her writing in `profile/uploads/` for voice: `cover-letters/`, `writing/` (networking email), `context/` (project notes for interviews and emails), `resumes/` (all variants).
 - `slug` = the key with every non-alphanumeric run replaced by `-`. Work in `data/materials/<slug>/`.

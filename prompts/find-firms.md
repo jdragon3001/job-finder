@@ -4,7 +4,7 @@ Find firms in her target categories (`profile/profile.yaml` → wants) with an o
 entry-level analysts but have **no matching open posting** in `data/jobs.db`. Economic consultancies that hire
 analyst classes are the best kind (they often recruit through referrals before posting).
 
-Rules: public web only; never log in; skip firms already in the DB (`sqlite3 -readonly data/jobs.db "select company from jobs"`
+Rules: public web only; never log in; skip firms already in the DB (`python3 scripts/q.py "select company from jobs"`
 — compare by first word of the name); never sales, never commercial real estate.
 
 For each firm (aim for 5–15), append to `data/inbox/firms-YYYY-MM-DD.jsonl` a candidate line with the firm's

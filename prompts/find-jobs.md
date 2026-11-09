@@ -16,7 +16,7 @@ written for the first user (a recent economics graduate in Chicago aiming at res
 Every listing not yet judged, exported from the database:
 
 ```bash
-sqlite3 -readonly -json data/jobs.db "select key, url, title, company, location, posted, salary, seniority, employment, description from jobs where verdict is null" > data/to-screen.json
+python3 scripts/q.py --json "select key, url, title, company, location, posted, salary, seniority, employment, description from jobs where verdict is null" > data/to-screen.json
 ```
 
 Each has the full `description`. Harvesting already removed obvious misfits by title only — **you are

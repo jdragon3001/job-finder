@@ -1,4 +1,4 @@
-# Job Search Copilot
+# Job Finder
 
 A local app that runs an entry-level job search on **your own Claude Code subscription**. Each day it finds
 postings that fit your rules, checks them against the company's careers page, and lists them for you to
@@ -10,10 +10,20 @@ Nothing is sent for you: emails become Gmail drafts, LinkedIn notes are copy-pas
 
 ## Setup (10 minutes)
 
-1. **Install** [Node 22.5+](https://nodejs.org), Python 3.10+, and [Claude Code](https://claude.com/claude-code); run `claude` once and log in.
-2. `npm install`
-3. **Your profile** — everything in `profile/` except the examples is git-ignored:
-   - `cp profile/profile.example.yaml profile/profile.yaml` and edit: what you want, where, pay floor, experience rule.
+1. **Install** (you need a Claude Pro or Max plan). Paste one line:
+   - **Mac / Linux** — in Terminal:
+     ```bash
+     curl -fsSL https://raw.githubusercontent.com/jdragon3001/job-finder/main/install.sh | sh
+     ```
+   - **Windows** — in PowerShell:
+     ```powershell
+     irm https://raw.githubusercontent.com/jdragon3001/job-finder/main/install.ps1 | iex
+     ```
+   It puts everything in a `job-finder` folder in your home folder, adds whatever's missing (Node, Python,
+   Claude Code, and on Windows Git Bash) without admin rights, and asks you to log in to Claude.
+   Run the same line again later to update; your profile and data stay.
+2. **Your profile** — in `~/job-finder/profile/` (git-ignored, never uploaded):
+   - `profile.yaml`: what you want, where, pay floor, experience rule.
    - `profile/facts.md`: every fact and approved resume bullet Claude may use (shape: `profile/facts.example.md`).
      Easiest: put your resume, cover letters and a few emails in `profile/uploads/` and ask Claude Code to
      "write profile/facts.md from my uploads following profile/facts.example.md", then read it carefully.
@@ -21,8 +31,11 @@ Nothing is sent for you: emails become Gmail drafts, LinkedIn notes are copy-pas
      Microsoft Word). A PDF converted to Word won't do — tailoring edits your exact file.
    - Searching outside Chicago? Change `LOCATIONS` and `NEAR` at the top of `scripts/harvest.py` and the
      Built In city in `BUILTIN_LISTS`.
-4. **Optional** — `cp .env.example .env` and add a Gmail app password (drafts + status) and a Treg key (emails).
-5. `npm run build && npm start`, open <http://localhost:3456>. The first search run starts by itself and takes a while.
+3. **Optional** — `cp .env.example .env` and add a Gmail app password (drafts + status) and a Treg key (emails).
+4. **Start** by double-clicking **Start Job Finder** in the `job-finder` folder (`start.sh` on Linux).
+   Keep the window it opens; the dashboard opens at <http://localhost:3456>. The first search run starts by itself and takes a while.
+
+Working on the code instead? Clone the repo, then `npm install && npm run dev`.
 
 Your profile, `.env` and `data/` (the database, run logs, generated files) are git-ignored and never leave your laptop
 except through the services you connect.

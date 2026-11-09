@@ -12,3 +12,6 @@ node_modules/
 .next/
 next-env.d.ts
 __pycache__/
+
+# Local launcher (the installer writes its own)
+Start Job Finder.command

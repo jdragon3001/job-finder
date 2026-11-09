@@ -73,15 +73,50 @@ def parse_cards(page):
         }
 
 
+# Every fetched posting is appended here the moment it arrives, so a run that is killed or crashes
+# loses nothing: the next run reuses these and only fetches what's missing. Entries expire after a week.
+CACHE, CACHE_PATH, CACHE_DAYS = {}, None, 8
+
+
+def load_cache(path):
+    global CACHE, CACHE_PATH
+    import datetime as dt
+    CACHE_PATH, CACHE = Path(path), {}
+    cutoff = (dt.date.today() - dt.timedelta(days=CACHE_DAYS)).isoformat()
+    if CACHE_PATH.exists():
+        for line in CACHE_PATH.read_text().splitlines():
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue  # a line cut off by a kill mid-write
+            if e["at"] >= cutoff:
+                CACHE[e["key"]] = e
+    CACHE_PATH.write_text("".join(json.dumps(e) + "\n" for e in CACHE.values()))  # drop expired
+
+
+def remember(key, value):
+    import datetime as dt
+    CACHE[key] = e = {"key": key, "at": dt.date.today().isoformat(), "value": value}
+    with CACHE_PATH.open("a") as f:
+        f.write(json.dumps(e) + "\n")
+
+
 def detail(job):
+    if job["id"] in CACHE:
+        job.update(CACHE[job["id"]]["value"])
+        return job
+    time.sleep(1)
     page = get(DETAIL + job["id"])
     desc = re.search(r'show-more-less-html__markup[^>]*>(.*?)</div>', page, re.S)
     crit = dict(re.findall(r'description__job-criteria-subheader">\s*(.*?)\s*</h3>.*?criteria-text[^>]*>\s*(.*?)\s*</span>', page, re.S))
     pay = re.search(r'compensation__salary[^>]*>(.*?)</div>', page, re.S)
-    job.update(description=text(desc.group(1)) if desc else "",
-               seniority=text(crit.get("Seniority level", "")),
-               employment=text(crit.get("Employment type", "")),
-               salary=text(pay.group(1)) if pay else "")
+    fields = dict(description=text(desc.group(1)) if desc else "",
+                  seniority=text(crit.get("Seniority level", "")),
+                  employment=text(crit.get("Employment type", "")),
+                  salary=text(pay.group(1)) if pay else "")
+    if fields["description"]:  # a failed fetch isn't cached, so the next run retries it
+        remember(job["id"], fields)
+    job.update(fields)
     return job
 
 
@@ -101,22 +136,28 @@ def builtin(queries, days, pages):
                 if not found - links:
                     break
                 links |= found
+    # The slug is the title: drop obvious misfits before paying ~2s (and 429 risk) per page.
+    links = {u for u in links if not EXCLUDE.search(u.split("/job/")[1].rsplit("/", 1)[0].replace("-", " "))}
     jobs = []
     for url in sorted(links):
+        if url in CACHE:
+            jobs += [j for j in CACHE[url]["value"] if j["posted"] >= cutoff]
+            continue
         page = get(url)
+        found = []
         for blob in re.findall(r'<script[^>]*ld\+json[^>]*>(.*?)</script>', page, re.S):
             try:
                 d = json.loads(blob)
             except ValueError:
                 continue
             for x in (d.get("@graph", [d]) if isinstance(d, dict) else d):
-                if not isinstance(x, dict) or x.get("@type") != "JobPosting" or x.get("datePosted", "") < cutoff:
+                if not isinstance(x, dict) or x.get("@type") != "JobPosting":
                     continue
                 loc = x.get("jobLocation") or {}
                 loc = loc[0] if isinstance(loc, list) and loc else loc
                 addr = loc.get("address", {}) if isinstance(loc, dict) else {}
                 sal = (x.get("baseSalary") or {}).get("value") or {}
-                jobs.append({
+                found.append({
                     "id": "bi-" + url.rsplit("/", 1)[-1], "source": "builtin", "url": url,
                     "title": text(x.get("title", "")), "company": (x.get("hiringOrganization") or {}).get("name", ""),
                     "location": "Remote" if x.get("jobLocationType") == "TELECOMMUTE" else ", ".join(filter(None, [addr.get("addressLocality"), addr.get("addressRegion")])),
@@ -124,6 +165,9 @@ def builtin(queries, days, pages):
                     "salary": f"${sal.get('minValue')}–${sal.get('maxValue')}" if sal.get("minValue") else "",
                     "seniority": "", "employment": str(x.get("employmentType", "")),
                 })
+        if page:
+            remember(url, found)
+        jobs += [j for j in found if j["posted"] >= cutoff]
         time.sleep(2)  # Built In returns 429 below ~1 request/second
     return [j for j in jobs if INCLUDE.search(j["title"]) and not EXCLUDE.search(j["title"])]
 
@@ -135,6 +179,7 @@ def main():
     ap.add_argument("--out", default="data")
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(exist_ok=True)
+    load_cache(out / "harvest-cache.jsonl")
 
     seen, raw = {}, 0
     for q in QUERIES:
@@ -153,7 +198,7 @@ def main():
 
     jobs = list(seen.values())
     # ponytail: one request at a time with a pause; 4 threads drew 429s from LinkedIn on a 1,100-job week.
-    jobs = [detail(j) for j in jobs if not time.sleep(1)]
+    jobs = [detail(j) for j in jobs]
     bi = builtin(QUERIES, a.days, a.pages)
     print(f"builtin: {len(bi)}", file=sys.stderr)
     # Same job on several boards or under several IDs: dedupe by company + title + location.
@@ -174,5 +219,26 @@ def main():
     print(f"\nlistings seen: {raw} · passed title screen: {len(seen)} · unique with description: {len(jobs)} -> {path}", file=sys.stderr)
 
 
+def _check():
+    """A killed run resumes: fetched postings come back from the cache, failed ones are retried."""
+    import tempfile
+    global get, time
+    calls, pages = [], {"1": '<div class="show-more-less-html__markup">Hello</div>', "2": ""}
+    get = lambda url: calls.append(url) or pages[url.rsplit("/", 1)[-1]]
+    time = type("T", (), {"sleep": staticmethod(lambda s: None)})
+    path = Path(tempfile.mkdtemp()) / "cache.jsonl"
+    path.write_text('{"key": "old", "at": "2000-01-01", "value": {}}\n')
+    load_cache(path)
+    assert "old" not in CACHE                                   # expired entries are dropped
+    assert detail({"id": "1"})["description"] == "Hello" and detail({"id": "2"})["description"] == ""
+    with path.open("a") as f:
+        f.write('{"key": "3", "at"')                            # a write cut off by a kill
+    load_cache(path); calls.clear()                             # the next run
+    assert detail({"id": "1"})["description"] == "Hello" and calls == []   # reused, not fetched
+    detail({"id": "2"})
+    assert len(calls) == 1                                      # the failed one is fetched again
+    print("harvest ok")
+
+
 if __name__ == "__main__":
-    main()
+    _check() if "--check" in sys.argv else main()
