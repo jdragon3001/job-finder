@@ -644,29 +644,23 @@ function Settings({ value, ready, save }) {
     </div>);
 }
 
-// A .docx drawn as it really looks (fonts, layout, page), loaded only when opened.
+// A .docx as Word lays it out: the server renders a PDF (LibreOffice) and the browser's own viewer shows it.
 function DocPreview({ url }) {
-  const ref = useRef();
-  const [state, setState] = useState('loading');
+  const [src, setSrc] = useState(null);
+  const [err, setErr] = useState('');
   useEffect(() => {
-    let gone = false;
-    (async () => {
-      try {
-        const [{ renderAsync }, r] = await Promise.all([import('docx-preview'), fetch(url, { cache: 'no-store' })]);
-        if (!r.ok) throw new Error('Couldn’t load the file');
-        const blob = await r.blob();
-        if (gone) return;
-        ref.current.innerHTML = '';
-        await renderAsync(blob, ref.current, null, { inWrapper: true, ignoreLastRenderedPageBreak: true, breakPages: true });
-        if (!gone) setState('ok');
-      } catch (e) { if (!gone) setState(e.message || 'Couldn’t show this file — download it instead'); }
-    })();
-    return () => { gone = true; };
+    let gone = false, made;
+    fetch(url + '&pdf=1', { cache: 'no-store' })
+      .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Couldn’t make a preview'); return r.blob(); })
+      .then(b => { if (!gone) setSrc(made = URL.createObjectURL(b)); })
+      .catch(e => !gone && setErr(e.message));
+    return () => { gone = true; if (made) URL.revokeObjectURL(made); };
   }, [url]);
   return <div className="docview">
-    {state === 'loading' && <div className="mut row" style={{ gap: 8, padding: 16 }}><Ic d={I.loader} cls="i spin" />Opening</div>}
-    {state !== 'loading' && state !== 'ok' && <div className="err" style={{ padding: 16 }}>{state}</div>}
-    <div ref={ref} /></div>;
+    {err ? <div className="err" style={{ padding: 16 }}>{err}</div>
+      : !src ? <div className="mut row" style={{ gap: 8, padding: 16 }}><Ic d={I.loader} cls="i spin" />Opening</div>
+      : <iframe title="Preview" src={src + '#toolbar=0&navpanes=0&view=FitH'} style={{ width: '100%', aspectRatio: '8.5 / 11', border: 0, display: 'block' }} />}
+  </div>;
 }
 
 function ReadyJob(

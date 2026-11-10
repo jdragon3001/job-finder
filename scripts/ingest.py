@@ -9,7 +9,7 @@ Processed files move to data/inbox/done/.
 
 Usage: python3 scripts/ingest.py [--db data/jobs.db] [--inbox data/inbox]
 """
-import argparse, datetime as dt, fcntl, json, re, sqlite3, sys
+import argparse, datetime as dt, json, re, sqlite3, sys
 from pathlib import Path
 
 SCHEMA = """
@@ -151,7 +151,13 @@ def main():
     a = ap.parse_args()
     inbox = Path(a.inbox); (inbox / "done").mkdir(parents=True, exist_ok=True)
     # Screening batches finish in parallel and each runs this; one at a time, so no two take the same file.
-    lock = open(inbox / ".lock", "w"); fcntl.flock(lock, fcntl.LOCK_EX)
+    lock = open(inbox / ".lock", "a+")
+    try:
+        import fcntl
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    except ImportError:   # Windows
+        import msvcrt
+        lock.seek(0); msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
     db = sqlite3.connect(a.db); migrate(db)
     ok = bad = 0
     with open(inbox / "errors.log", "a") as log:

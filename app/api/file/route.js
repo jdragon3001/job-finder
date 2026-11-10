@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, basename, sep } from 'node:path';
-import { getDb } from '../../../lib/server.js';
+import { getDb, pdfOf } from '../../../lib/server.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,7 @@ export function GET(req) {
   const root = resolve('data/materials') + sep;
   const path = rel && resolve(rel);
   if (!path || !path.startsWith(root) || !existsSync(path)) return new Response('not found', { status: 404 });
+  if (u.searchParams.has('pdf')) return pdfOf(path);
   return new Response(readFileSync(path), { headers: {
     'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'content-disposition': `attachment; filename="${basename(path).replace(/"/g, '')}"`,

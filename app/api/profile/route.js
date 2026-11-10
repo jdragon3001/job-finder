@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync } from 'node:fs';
 import { resolve, sep, basename, extname } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
-import { getDb, readProfile, saveProfile } from '../../../lib/server.js';
+import { getDb, readProfile, saveProfile, pdfOf } from '../../../lib/server.js';
 import { normalize, DEFAULTS, searchReady } from '../../../lib/profile.js';
 import { start, running, lastRun } from '../../../lib/runner.js';
 
@@ -34,6 +34,7 @@ export async function GET(req) {
   if (file) {
     const p = pick(DOCS, file) ? resolve(DOCS[file]) : CATS.includes(file.split('/')[0]) && inProfile('uploads/' + file);
     if (!p || !existsSync(p)) return new Response('not found', { status: 404 });
+    if (new URL(req.url).searchParams.has('pdf') && extname(p).toLowerCase() === '.docx') return pdfOf(p);
     const pdf = extname(p).toLowerCase() === '.pdf';
     return new Response(readFileSync(p), { headers: {
       'content-type': pdf ? 'application/pdf' : 'application/octet-stream',

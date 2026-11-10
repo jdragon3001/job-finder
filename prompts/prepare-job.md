@@ -47,6 +47,10 @@ section and say so in your final line — the job will show as failed so she kno
 
 Resume edits: choose which bullets from the `facts.md` bullet bank appear and in what order, so the most
 relevant come first for this job. Text must be a bank bullet exactly.
+**Both files must fit on one page** as Word lays them out — `tailor.py` measures the real page and refuses
+anything longer. Her base resume may itself run over: drop the bullets least relevant to this job (whole
+roles' weakest bullets first, never the education or contact lines) until it fits. For the letter, tighten
+the new paragraphs.
 Write `data/materials/<slug>/resume-edits.json`:
 ```json
 {"replace": [{"find": "<exact current paragraph text>", "with": "<bank bullet text>"}],
