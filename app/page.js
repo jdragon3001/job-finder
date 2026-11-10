@@ -425,10 +425,6 @@ function Profile({ say, reloadApp }) {
   });
   const picker = (to, label, accept, multiple = true) => <label className="btn" style={{ cursor: 'pointer' }}>{busy === 'up:' + to ? <Ic d={I.loader} cls="i spin" /> : <Ic d={I.upload} />}{label}
     <input type="file" accept={accept} multiple={multiple} hidden onChange={e => { upload(to, [...e.target.files]); e.target.value = ''; }} /></label>;
-  const showText = async (which) => {
-    if (preview[which]) return setPreview(x => ({ ...x, [which]: null }));
-    try { const r = await fetch('/api/profile?text=' + which); const j = await r.json(); if (!r.ok) throw new Error(j.error); setPreview(x => ({ ...x, [which]: j.text })); } catch (e) { say(e.message, { err: true }); }
-  };
   const saveKeys = (tag, names) => run(tag, async () => { await api({ action: 'env', values: Object.fromEntries(names.map(k => [k, keys[k]])) }); setKeys(x => ({ ...x, ...Object.fromEntries(names.map(k => [k, ''])) })); }, tag === 'gmail' ? 'Gmail connected' : 'Treg key saved');
   const field = (k, label, type, ph) => <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}><span className="mut">{label}</span>
     <input className="inp" type={type} autoComplete="off" spellCheck={false} placeholder={ph} value={keys[k]} onChange={e => setKeys(x => ({ ...x, [k]: e.target.value }))} /></label>;
@@ -487,11 +483,11 @@ function Profile({ say, reloadApp }) {
               <div key={k} {...drop(k)} className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, borderStyle: d ? 'solid' : 'dashed', borderColor: over === k ? 'var(--a)' : undefined, gridColumn: preview[k] ? '1 / -1' : undefined }}>
                 <div className="row" style={{ gap: 8 }}><b>{label}</b>{d && <span className="mut" style={{ fontSize: 12, marginLeft: 'auto' }}>Updated {ago(d.at.replace('Z', '').replace('T', ' ').slice(0, 19))}</span>}</div>
                 {d ? <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                    <button className="btn" onClick={() => showText(k)}>{preview[k] ? 'Hide' : 'Preview'}</button>
+                    <button className="btn" aria-expanded={!!preview[k]} onClick={() => setPreview(x => ({ ...x, [k]: !x[k] }))}>{preview[k] ? 'Hide' : 'Preview'}</button>
                     <a className="btn" href={'/api/profile?file=' + k}><Ic d={I.download} />Download</a>
                     {picker(k, 'Replace', '.docx', false)}</div>
                   : <><div className="mut" style={{ fontSize: 12 }}>Drop a .docx here, or pick one. From Google Docs: File → Download → Microsoft Word. A PDF turned into Word won’t work.</div><div>{picker(k, 'Upload ' + label.toLowerCase(), '.docx', false)}</div></>}
-                {preview[k] && <div className="quote" style={{ whiteSpace: 'pre-wrap', maxHeight: 420, overflow: 'auto', fontSize: 12.5, lineHeight: 1.6 }}>{preview[k]}</div>}
+                {preview[k] && d && <DocPreview url={`/api/profile?file=${k}&v=${encodeURIComponent(d.at)}`} />}
               </div>); })}
           </div>
         </section>
@@ -648,10 +644,36 @@ function Settings({ value, ready, save }) {
     </div>);
 }
 
+// A .docx drawn as it really looks (fonts, layout, page), loaded only when opened.
+function DocPreview({ url }) {
+  const ref = useRef();
+  const [state, setState] = useState('loading');
+  useEffect(() => {
+    let gone = false;
+    (async () => {
+      try {
+        const [{ renderAsync }, r] = await Promise.all([import('docx-preview'), fetch(url, { cache: 'no-store' })]);
+        if (!r.ok) throw new Error('Couldn’t load the file');
+        const blob = await r.blob();
+        if (gone) return;
+        ref.current.innerHTML = '';
+        await renderAsync(blob, ref.current, null, { inWrapper: true, ignoreLastRenderedPageBreak: true, breakPages: true });
+        if (!gone) setState('ok');
+      } catch (e) { if (!gone) setState(e.message || 'Couldn’t show this file — download it instead'); }
+    })();
+    return () => { gone = true; };
+  }, [url]);
+  return <div className="docview">
+    {state === 'loading' && <div className="mut row" style={{ gap: 8, padding: 16 }}><Ic d={I.loader} cls="i spin" />Opening</div>}
+    {state !== 'loading' && state !== 'ok' && <div className="err" style={{ padding: 16 }}>{state}</div>}
+    <div ref={ref} /></div>;
+}
+
 function ReadyJob(
 
 { j, gmail, act, say, diffOpen, setDiffOpen, exp, setExp, copied, setCopied }) {
   const m = j.materials || {};
+  const [show, setShow] = useState(null);   // which file is open in the preview
   const file = (which) => `/api/file?which=${which}&key=${encodeURIComponent(j.key)}`;
   const name = (p) => (p || '').split('/').pop();
   return (
@@ -676,8 +698,10 @@ function ReadyJob(
           <div key={w} className="file" style={i ? { borderTop: '1px solid var(--line2)' } : null}>
             <span className="fic">DOCX</span>
             <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 500 }}>{name(m[w])}</div><div className="mut" style={{ fontSize: 12 }}>{sub}</div></div>
+            <button className="btn" aria-expanded={show === w} onClick={() => setShow(show === w ? null : w)}>{show === w ? 'Hide' : 'Preview'}</button>
             <a className="btn" href={file(w)} download><Ic d={I.download} />Download</a>
           </div>))}
+        {show && <div style={{ borderTop: '1px solid var(--line2)' }}><DocPreview url={file(show)} /></div>}
         <div style={{ borderTop: '1px solid var(--line2)', padding: '8px 12px' }}>
           <button className="linkbtn" onClick={() => setDiffOpen(!diffOpen)} aria-expanded={diffOpen}><Ic d={diffOpen ? I.chevD : I.chevR} s={13} />{diffOpen ? 'Hide changes' : 'See what changed'}</button>
         </div>

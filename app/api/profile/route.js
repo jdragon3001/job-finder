@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync } from 'node:fs';
 import { resolve, sep, basename, extname } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
-import { getDb, py, readProfile, saveProfile } from '../../../lib/server.js';
+import { getDb, readProfile, saveProfile } from '../../../lib/server.js';
 import { normalize, DEFAULTS, searchReady } from '../../../lib/profile.js';
 import { start, running, lastRun } from '../../../lib/runner.js';
 
@@ -30,7 +30,7 @@ const claudeStatus = () => new Promise(res => execFile(CLAUDE(), ['auth', 'statu
 }));
 
 export async function GET(req) {
-  const u = new URL(req.url), file = u.searchParams.get('file'), text = u.searchParams.get('text');
+  const file = new URL(req.url).searchParams.get('file');
   if (file) {
     const p = pick(DOCS, file) ? resolve(DOCS[file]) : CATS.includes(file.split('/')[0]) && inProfile('uploads/' + file);
     if (!p || !existsSync(p)) return new Response('not found', { status: 404 });
@@ -39,11 +39,6 @@ export async function GET(req) {
       'content-type': pdf ? 'application/pdf' : 'application/octet-stream',
       'content-disposition': `${pdf ? 'inline' : 'attachment'}; filename="${basename(p).replace(/["\\]/g, '')}"`,
     } });
-  }
-  if (text) {
-    if (!pick(DOCS, text) || !existsSync(DOCS[text])) return bad('no such document', 404);
-    const r = await py(['scripts/tailor.py', 'text', DOCS[text]]);
-    return r.ok ? Response.json({ text: r.out }) : bad('Could not read that Word file: ' + r.err, 502);
   }
   const db = getDb();
   return Response.json({

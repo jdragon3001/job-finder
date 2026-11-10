@@ -131,5 +131,8 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close(); server.kill();
-  rmSync('data/materials', { recursive: true, force: true });   // fake-claude output only
+  // Only the fake jobs' folders: data/materials also holds her real tailored files (this once deleted them).
+  const { DatabaseSync } = await import('node:sqlite');
+  for (const { key } of new DatabaseSync(DB).prepare('select key from jobs').all())
+    rmSync('data/materials/' + key.replace(/[^a-z0-9]+/gi, '-'), { recursive: true, force: true });
 }
