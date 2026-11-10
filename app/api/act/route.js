@@ -1,6 +1,6 @@
 import { decide, undo, setNote, swap, applyOpened } from '../../../lib/store.js';
 import { start, pump, UNDO_GRACE_MS } from '../../../lib/runner.js';
-import { getDb, py, gmailConfigured, saveEnv, canSearch } from '../../../lib/server.js';
+import { getDb, py, gmailConfigured, saveEnv, canSearch, clear } from '../../../lib/server.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +30,10 @@ export async function POST(req) {
         if (typeof b.key !== 'string') return bad('key must be a string');
         db.prepare(`update jobs set prep='queued' where key=? and prep='failed'`).run(b.key);
         pump(db); return Response.json({ ok: true });
+      }
+      case 'clear': {
+        if (!['data', 'profile', 'all'].includes(b.what)) return bad('what must be data, profile or all');
+        clear(b.what); return Response.json({ ok: true });
       }
       case 'run': return canSearch() ? Response.json({ started: start(db, 'daily') }) : Response.json({ error: 'Tell it what you’re looking for on your Profile first' }, { status: 409 });
       case 'draft': {

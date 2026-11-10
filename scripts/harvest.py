@@ -6,7 +6,7 @@ then fetches the full description for the survivors. Claude judges the survivors
 
 Usage: python3 scripts/harvest.py [--days 1] [--pages 5] [--out data]
 """
-import argparse, concurrent.futures as cf, html, json, re, sys, time, urllib.parse, urllib.request
+import argparse, concurrent.futures as cf, html, json, re, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 LIST = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?"
@@ -60,16 +60,47 @@ def fits(title, s):
     return not (s["exclude"] and s["exclude"].search(title)) and (not s["include"] or s["include"].search(title))
 
 
+LIMITED = {}   # host -> rate-limit answers in a row
+COOLED = {}    # host -> cool-downs taken this run
+COOL_DOWN = 300
+
+
 def get(url, tries=4):
+    host = urllib.parse.urlsplit(url).netloc
+    if COOLED.get(host, 0) >= 2 and LIMITED.get(host, 0) >= 3:
+        return ""   # still refusing after two 5-minute cool-downs: leave it alone for this run
     for i in range(tries):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20) as r:
+                LIMITED[host] = 0
                 return r.read().decode("utf-8", "replace")
-        except Exception as e:  # 429 / transient: back off and retry
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                if i == tries - 1:
+                    print(f"  ! {url[:90]} -> {e}", file=sys.stderr)
+                    return ""
+                time.sleep(2 ** (i + 1)); continue
+            # Rate limited: wait as long as the site asks (a minute if it doesn't say). Three in a row:
+            # cool down 5 minutes and carry on (LinkedIn's blocks pass; giving up on the first one once
+            # skipped 18 of 19 searches). Only after two cool-downs that didn't help is the site dropped.
+            LIMITED[host] = LIMITED.get(host, 0) + 1
+            if LIMITED[host] >= 3:
+                if COOLED.get(host, 0) >= 2:
+                    print(f"  ! {host} still rate-limiting after two cool-downs; skipping it for the rest of this run", file=sys.stderr)
+                    return ""
+                COOLED[host] = COOLED.get(host, 0) + 1
+                print(f"  ! {host} is rate-limiting; pausing {COOL_DOWN // 60} minutes", file=sys.stderr, flush=True)
+                time.sleep(COOL_DOWN); LIMITED[host] = 0
+                continue
+            wait = e.headers.get("Retry-After", "")
+            time.sleep(min(int(wait), 300) if wait.isdigit() else 60)
+        except Exception as e:  # network hiccup: back off and retry
             if i == tries - 1:
                 print(f"  ! {url[:90]} -> {e}", file=sys.stderr)
                 return ""
             time.sleep(2 ** (i + 1))
+    print(f"  ! {url[:90]} -> still rate-limited", file=sys.stderr)
+    return ""
 
 
 def text(s):
@@ -141,6 +172,33 @@ def detail(job):
     return job
 
 
+def postings(page, url):
+    """JobPosting entries from a Built In job page's JSON-LD. Built In writes the tag type with an
+    HTML-encoded plus (ld&#x2B;json); matching only a literal '+' once silently yielded zero jobs."""
+    found = []
+    for blob in re.findall(r'<script[^>]*ld(?:\+|&#x2B;|&#43;)json[^>]*>(.*?)</script>', page, re.S):
+        try:
+            d = json.loads(blob)
+        except ValueError:
+            continue
+        for x in (d.get("@graph", [d]) if isinstance(d, dict) else d):
+            if not isinstance(x, dict) or x.get("@type") != "JobPosting":
+                continue
+            loc = x.get("jobLocation") or {}
+            loc = loc[0] if isinstance(loc, list) and loc else loc
+            addr = loc.get("address", {}) if isinstance(loc, dict) else {}
+            sal = (x.get("baseSalary") or {}).get("value") or {}
+            found.append({
+                "id": "bi-" + url.rsplit("/", 1)[-1], "source": "builtin", "url": url,
+                "title": text(x.get("title", "")), "company": (x.get("hiringOrganization") or {}).get("name", ""),
+                "location": "Remote" if x.get("jobLocationType") == "TELECOMMUTE" else ", ".join(filter(None, [addr.get("addressLocality"), addr.get("addressRegion")])),
+                "posted": x.get("datePosted", "")[:10], "description": text(x.get("description", "")),
+                "salary": f"${sal.get('minValue')}–${sal.get('maxValue')}" if sal.get("minValue") else "",
+                "seniority": "", "employment": str(x.get("employmentType", "")),
+            })
+    return found
+
+
 def builtin(s, days, pages):
     """Built In city and remote search pages, then each job's JSON-LD."""
     import datetime as dt
@@ -149,8 +207,13 @@ def builtin(s, days, pages):
     for q in s["queries"]:
         for base, where in s["builtin"]:
             for p in range(1, pages + 1):
-                host = base.split("/jobs")[0]
-                found = {host + m for m in re.findall(r'/job/[a-z0-9-]+/\d+', get(base + urllib.parse.urlencode({"search": q, "page": p})))}
+                # daysSinceUpdated: Built In's own date filter (unfiltered, most results are weeks old and each
+                # costs a page fetch). The pause applies to search pages too: unpaced they tripped its rate limit.
+                page = get(base + urllib.parse.urlencode({"search": q, "page": p, "daysSinceUpdated": days}))
+                time.sleep(2)
+                # Every city site's job N is also builtin.com/job/.../N: fetch it there, once. The city
+                # sites rate-limit job pages (a minute's wait each); builtin.com didn't, in testing.
+                found = {"https://builtin.com" + m for m in re.findall(r'/job/[a-z0-9-]+/\d+', page)}
                 if not found - links:
                     break
                 links |= found
@@ -159,33 +222,15 @@ def builtin(s, days, pages):
     # The slug is the title: drop obvious misfits before paying ~2s (and 429 risk) per page.
     links = {u for u in links if fits(u.split("/job/")[1].rsplit("/", 1)[0].replace("-", " "), s)}
     jobs = []
-    for url in sorted(links):
-        if url in CACHE:
+    for n, url in enumerate(sorted(links), 1):
+        if n % 10 == 0 or n == len(links):
+            print(f"builtin {n}/{len(links)}", file=sys.stderr, flush=True)
+        if CACHE.get(url, {}).get("value"):   # an empty entry is a page that yielded nothing: try again
             jobs += [dict(j, via=via[url]) for j in CACHE[url]["value"] if j["posted"] >= cutoff]
             continue
         page = get(url)
-        found = []
-        for blob in re.findall(r'<script[^>]*ld\+json[^>]*>(.*?)</script>', page, re.S):
-            try:
-                d = json.loads(blob)
-            except ValueError:
-                continue
-            for x in (d.get("@graph", [d]) if isinstance(d, dict) else d):
-                if not isinstance(x, dict) or x.get("@type") != "JobPosting":
-                    continue
-                loc = x.get("jobLocation") or {}
-                loc = loc[0] if isinstance(loc, list) and loc else loc
-                addr = loc.get("address", {}) if isinstance(loc, dict) else {}
-                sal = (x.get("baseSalary") or {}).get("value") or {}
-                found.append({
-                    "id": "bi-" + url.rsplit("/", 1)[-1], "source": "builtin", "url": url,
-                    "title": text(x.get("title", "")), "company": (x.get("hiringOrganization") or {}).get("name", ""),
-                    "location": "Remote" if x.get("jobLocationType") == "TELECOMMUTE" else ", ".join(filter(None, [addr.get("addressLocality"), addr.get("addressRegion")])),
-                    "posted": x.get("datePosted", "")[:10], "description": text(x.get("description", "")),
-                    "salary": f"${sal.get('minValue')}–${sal.get('maxValue')}" if sal.get("minValue") else "",
-                    "seniority": "", "employment": str(x.get("employmentType", "")),
-                })
-        if page:
+        found = postings(page, url)
+        if found:
             remember(url, found)
         jobs += [dict(j, via=via[url]) for j in found if j["posted"] >= cutoff]
         time.sleep(2)  # Built In returns 429 below ~1 request/second
@@ -219,7 +264,10 @@ def main():
 
     jobs = list(seen.values())
     # ponytail: one request at a time with a pause; 4 threads drew 429s from LinkedIn on a 1,100-job week.
-    jobs = [detail(j) for j in jobs]
+    for i, j in enumerate(jobs, 1):   # the dashboard reads these lines for its progress
+        detail(j)
+        if i % 10 == 0 or i == len(jobs):
+            print(f"details {i}/{len(jobs)}", file=sys.stderr, flush=True)
     bi = builtin(s, a.days, a.pages)
     print(f"builtin: {len(bi)}", file=sys.stderr)
     # Same job on several boards or under several IDs: dedupe by company + title + location.
@@ -242,8 +290,9 @@ def main():
 
 def _check():
     """A killed run resumes: fetched postings come back from the cache, failed ones are retried."""
-    import tempfile
+    import tempfile, io
     global get, time
+    real_get = get
     calls, pages = [], {"1": '<div class="show-more-less-html__markup">Hello</div>', "2": ""}
     get = lambda url: calls.append(url) or pages[url.rsplit("/", 1)[-1]]
     time = type("T", (), {"sleep": staticmethod(lambda s: None)})
@@ -270,6 +319,39 @@ def _check():
     s = settings(prof)
     assert [l["via"] for l in s["linkedin"]] == ["remote"] and s["builtin"][0][0].endswith("/remote/entry-level?")
     assert fits("Economist", s) and not fits("Senior Economist", s) and not fits("Data Analyst", s) and fits("International Economics Analyst", s)
+    # Rate limited: waits what the site asks, cools down twice, then gives up on that site; others unaffected.
+    waits, hits = [], []
+    time = type("T", (), {"sleep": staticmethod(waits.append)})
+    def limited(req, timeout=0):
+        hits.append(req.full_url)
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {"Retry-After": "7"}, io.BytesIO())
+    urlopen, urllib.request.urlopen = urllib.request.urlopen, limited
+    try:
+        assert real_get("https://slow.example/a") == ""         # 4 tries: wait 7, wait 7, cool down, wait 7
+        assert waits == [7, 7, COOL_DOWN, 7] and len(hits) == 4
+        real_get("https://slow.example/b"); real_get("https://slow.example/c")
+        assert waits.count(COOL_DOWN) == 2 and real_get("https://slow.example/d") == ""
+        n = len(hits); real_get("https://slow.example/e"); assert len(hits) == n   # dropped: not asked again
+        real_get("https://other.example/x"); assert len(hits) == n + 4             # other sites unaffected
+    finally:
+        urllib.request.urlopen = urlopen
+    # A short block passes: LinkedIn answers again after the cool-down and the run carries on.
+    LIMITED.clear(); COOLED.clear(); waits.clear(); answers = iter([429, 429, 429, 200])
+    def flaky(req, timeout=0):
+        code = next(answers)
+        if code == 429:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO())
+        return io.BytesIO(b"jobs")
+    urllib.request.urlopen = flaky
+    try:
+        assert real_get("https://www.linkedin.com/x") == "jobs" and waits == [60, 60, COOL_DOWN] and LIMITED["www.linkedin.com"] == 0
+    finally:
+        urllib.request.urlopen = urlopen
+    page = ('<script type="application/ld&#x2B;json">{"@graph": [{"@type": "JobPosting", "title": "Analyst", '
+            '"hiringOrganization": {"name": "Acme"}, "jobLocationType": "TELECOMMUTE", "datePosted": "2026-11-09T00:00", '
+            '"description": "<p>Do analysis</p>"}]}</script>')
+    assert [(j["title"], j["company"], j["location"], j["posted"], j["description"]) for j in postings(page, "https://x/job/a/1")] == \
+        [("Analyst", "Acme", "Remote", "2026-11-09", "Do analysis")]
     print("harvest ok")
 
 

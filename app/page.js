@@ -73,8 +73,9 @@ export default function Page() {
       const r = await fetch('/api/state?mode=' + mode, { cache: 'no-store' });
       if (!r.ok) throw new Error('The app could not read data/jobs.db (' + r.status + ')');
       const d = await r.json(); setData(d); setLoadErr('');
-      const s = d.run.setup;   // open the guide by itself until the profile is in place
-      if (!autoGuide.current && !(s.profile && s.facts && s.resume && s.cover)) { autoGuide.current = true; setGuide(true); }
+      const s = d.run.setup;   // on first load only, open the guide if the profile isn't in place — never mid-task
+      if (!autoGuide.current && !(s.profile && s.facts && s.resume && s.cover)) setGuide(true);
+      autoGuide.current = true;
     } catch (e) { setLoadErr(e.message); }
   }, [mode]);
   useEffect(() => { load(); }, [load, view]);   // switching screens always shows fresh data
@@ -162,7 +163,7 @@ export default function Page() {
         <div style={{ flex: 1 }} />
         <div style={{ padding: '10px 9px', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="row" style={{ gap: 7, fontWeight: 500 }}><span style={{ width: 7, height: 7, borderRadius: '50%', flex: 'none', background: data.run.dailyRunning ? '#E0A43F' : !data.run.daily ? 'var(--faint)' : data.run.daily.ok === 0 ? '#DC2626' : 'var(--ok)' }} />{runTitle}</div>
-          <div className="mut" style={{ fontSize: 12, lineHeight: 1.4 }}>{data.run.dailyRunning ? 'Claude is reading job boards — this takes a while' : 'Runs itself when you open this and the last run is over a day old.'}</div>
+          <div className="mut" style={{ fontSize: 12, lineHeight: 1.4 }}>{data.run.dailyRunning ? <>{data.run.progress}<br /><span className="faint">Started {ago(data.run.started)} · about an hour in all</span></> : 'Runs itself when you open this and the last run is over a day old.'}</div>
           <button className="btn" style={{ justifyContent: 'flex-start' }} disabled={data.run.dailyRunning} onClick={() => act({ action: 'run' }, 'Started a search run')}>
             <Ic d={I.refresh} cls={data.run.dailyRunning ? 'i spin' : 'i'} />{data.run.dailyRunning ? 'Running…' : 'Run now'}</button>
           <button className="btn btn-g" style={{ justifyContent: 'flex-start', padding: '0 4px' }} onClick={() => setGuide(true)}>
@@ -401,6 +402,8 @@ function Profile({ say, reloadApp }) {
   const [preview, setPreview] = useState({});
   const [over, setOver] = useState('');
   const [setup, setSetup] = useState(null);
+  const [gen, setGen] = useState(0);           // remounts the chat after a Start over
+  const [sure, setSure] = useState('');        // which Start over button is asking to confirm
 
   const load = useCallback(async () => {
     try {
@@ -495,8 +498,8 @@ function Profile({ say, reloadApp }) {
 
         <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <H sub="Every search follows this: which job boards it searches, where, and how Claude judges each job.">What you’re looking for</H>
-          <Chat say={say} onChange={() => { load(); reloadApp(); }} />
-          <Settings value={p.prefs.value} ready={p.prefs.ready} save={async (value) => { try { await papi({ action: 'prefs', value }); say('Saved'); await load(); reloadApp(); return true; } catch (e) { say(e.message, { err: true }); return false; } }} />
+          <Chat key={'c' + gen} say={say} onChange={() => { load(); reloadApp(); }} />
+          <Settings key={'s' + gen} value={p.prefs.value} ready={p.prefs.ready} save={async (value) => { try { await papi({ action: 'prefs', value }); say('Saved'); await load(); reloadApp(); return true; } catch (e) { say(e.message, { err: true }); return false; } }} />
         </section>
 
         <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -525,6 +528,22 @@ function Profile({ say, reloadApp }) {
           </div>
           {p.build.last && !p.build.running && p.build.last.ok === 0 && <div className="err" style={{ fontSize: 12 }}>The last build didn’t finish. Check Claude is signed in above, then try again.</div>}
           {p.facts.text ? editor('facts', 18) : <div className="mut" style={{ fontSize: 12 }}>No facts yet.</div>}
+        </section>
+
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <H sub="Deleted from this computer for good — there’s no undo.">Start over</H>
+          <div className="card">
+            {[['data', 'Clear job data', 'Every job found, the people and drafts for each, your tailored resumes and letters, and run history. Your profile stays, and a fresh search starts next time you open New.'],
+              ['profile', 'Clear profile', 'Your resume, cover letter, writing samples, facts, search settings and the chat with Claude. Jobs already found stay.'],
+              ['all', 'Clear everything', 'Both of the above, plus your Gmail and Treg keys. Like a fresh install; your Claude sign-in stays.']].map(([what, title, desc], i) => (
+              <div key={what} className="row" style={{ gap: 14, padding: 14, borderTop: i ? '1px solid var(--line2)' : 0 }}>
+                <div style={{ flex: 1 }}><b>{title}</b><div className="mut" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>{desc}</div></div>
+                {sure === what ? <div className="row" style={{ gap: 6 }}>
+                    <button className="btn btn-g" onClick={() => setSure('')}>Cancel</button>
+                    <button className="btn btn-danger" disabled={busy === 'clear'} onClick={() => run('clear', async () => { await api({ action: 'clear', what }); setSure(''); setEd({}); setPreview({}); setGen(g => g + 1); }, title.replace('Clear', 'Cleared'))}>Yes, delete</button></div>
+                  : <button className="btn" style={{ color: '#B91C1C' }} onClick={() => setSure(what)}>{title}</button>}
+              </div>))}
+          </div>
         </section>
 
       </div>

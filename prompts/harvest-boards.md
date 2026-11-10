@@ -1,12 +1,10 @@
-# Harvest the job boards that block scripts
+# Harvest the boards the script doesn't cover
 
-`scripts/harvest.py` covers LinkedIn and Built In with plain HTTP. Rate limits: these boards block
-after a few dozen pages in a burst, so pause a few seconds between pages, and on a block (403, 429,
-"Just a moment", "Security Check") wait a minute, retry once, then move to the next board. Never try
-to get past a CAPTCHA or log in. Indeed, Glassdoor and ZipRecruiter
-block that, so you collect them with a crawl tool if one is available (e.g. `firecrawl_scrape`), otherwise
-`WebFetch`; if a board blocks both, say so in your final line and move on. You only **collect** here;
-`prompts/find-jobs.md` does the judging.
+`scripts/harvest.py` covers LinkedIn and Built In. Fetch pages here with the crawl tool if you have one
+(`firecrawl_scrape`; `firecrawl_search` for discovery), otherwise `WebFetch`. Pause a few seconds between
+pages. If a board answers with a security check, CAPTCHA or "verify you are human" page, that board does
+not want automated visitors: **skip it for this run and say so** — never try to get past it, never log in.
+You only **collect** here; `prompts/find-jobs.md` does the judging.
 
 ## Searches
 
@@ -15,20 +13,17 @@ Read `profile/profile.json`. Run every `search_terms` entry on every board, for 
 first run). Use the boards' own filters for her `level` and `job_types` — they are the cheapest way to cut
 volume.
 
-Indeed and ZipRecruiter listings passed screening 2× as often as LinkedIn's in the first user's test, so
-cover them fully before anything else. Fill `{level}` with the board's own term for her level (entry,
+ZipRecruiter listings passed screening about 2× as often as LinkedIn's in the first user's test, so cover
+it fully first. Fill `{level}` with the board's own term for her level (entry,
 mid, senior…), or drop that filter if she wants more than one level.
 
 | Board | Search URL (fill `{q}`, `{loc}`) |
 |---|---|
-| Indeed | `https://www.indeed.com/jobs?q={q}&l={loc}&radius={radius_miles}&fromage={DAYS}` plus Indeed's level filter, with `{loc}` = each city and `Remote` |
 | ZipRecruiter | `https://www.ziprecruiter.com/jobs-search?search={q}&location={loc}&days={DAYS}&radius={radius_miles}&refine_by_experience_level={level}` |
 | Idealist | `https://www.idealist.org/en/jobs?q={q}&locationString={loc}` (nonprofits — only if her `wants` include nonprofit or mission-driven work) |
 | Handshake | only if the user is logged in to Handshake in the browser tool; otherwise skip and say so |
 
-Skip Glassdoor: its listing pages sit behind a Cloudflare challenge and its results are mostly Indeed's
-jobs again (its links carry Indeed job keys). Ignore fake-looking Indeed links such as
-`viewjob?jk=a1b2c3d4e5f67890`; they are page decoys, not jobs.
+Skip Indeed and Glassdoor: both put job searches behind a bot check.
 
 Page through results until a page brings nothing new or 5 pages per query, whichever comes first.
 

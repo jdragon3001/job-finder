@@ -91,9 +91,12 @@ dashboard's filters are those words.
 ## Working method
 
 1. Read the profile. Count the candidates.
-2. Work through `data/to-screen.json` in batches of 25. If you can start subagents, give each a batch,
-   this whole file and its own output file (`data/inbox/screened-YYYY-MM-DD-<batch>.jsonl`), so no two
-   writers share a file.
+2. Split `data/to-screen.json` into batches of 25 and **start a subagent per batch, several at a time** —
+   one at a time takes an hour. Give each its batch, this whole file, the profile, and its own output name
+   `data/inbox/screened-YYYY-MM-DD-<batch>.jsonl`.
+   Each batch writes to `<that name>.part` first, renames it to `<that name>` only when every listing in the
+   batch is written, then runs `python3 scripts/ingest.py` — so her dashboard fills in as batches finish,
+   and the importer never reads a half-written file.
 3. For every listing decide `pass`, `reject` or `needs_masters`. A reject needs one line: which rule or
    junk pattern, and the quote.
 4. Never invent a fact. If the description doesn't say, the field is `null` and a flag says so.
@@ -105,9 +108,9 @@ dashboard's filters are those words.
 
 ## Output
 
-Write `data/inbox/screened-YYYY-MM-DD.jsonl`, one object per listing you judged — **every** listing,
-rejects included, or it will be screened again tomorrow. Copy `key` exactly from the export; it is how
-`scripts/ingest.py` attaches your verdict to the job. Then run `python3 scripts/ingest.py`.
+One object per listing judged, in the batch files above — **every** listing, rejects included, or it will be
+screened again tomorrow. Copy `key` exactly from the export; it is how `scripts/ingest.py` attaches your
+verdict to the job.
 
 ```json
 {"key":"nera|immediate hire researcher antitrust|chicago","verdict":"pass","score":91,
