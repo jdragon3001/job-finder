@@ -43,7 +43,6 @@ fi
 
 say "Building the app (a minute or two)"
 cd "$DIR"
-for f in profile.yaml facts.md; do [ -f "profile/$f" ] || cp "profile/${f%.*}.example.${f##*.}" "profile/$f"; done
 npm ci --omit=dev --no-audit --no-fund --loglevel=error
 npm run build >/dev/null
 
@@ -59,5 +58,5 @@ EOF
 chmod +x "$START"
 
 say "Done. Double-click '$(basename "$START")' in $DIR to run it."
-echo "First, fill in $DIR/profile/ (profile.yaml, facts.md, resume.docx, cover.docx) — see README.md."
+echo "Then open Profile in the dashboard: upload your resume and tell Claude what you are looking for."
 if [ "$(uname -s)" = Darwin ]; then open "$DIR"; fi

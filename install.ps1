@@ -59,9 +59,6 @@ if ($status -notmatch '"loggedIn":\s*true') {
 
 Say 'Building the app (a minute or two)'
 Set-Location $Dir
-foreach ($f in 'profile.yaml', 'facts.md') {
-  if (-not (Test-Path "profile\$f")) { Copy-Item "profile\$($f -replace '\.', '.example.')" "profile\$f" }
-}
 npm ci --omit=dev --no-audit --no-fund --loglevel=error; Ok 'npm ci'
 npm run build | Out-Null; Ok 'Build'
 
@@ -79,5 +76,5 @@ npm start
 Remove-Item -Recurse -Force $Tmp
 
 Say "Done. Double-click 'Start Job Finder' in $Dir to run it."
-Write-Host "First, fill in $Dir\profile\ (profile.yaml, facts.md, resume.docx, cover.docx) - see README.md."
+Write-Host "Then open Profile in the dashboard: upload your resume and tell Claude what you are looking for."
 Invoke-Item $Dir

@@ -1,8 +1,8 @@
-"""Harvest entry-level job postings from LinkedIn (public search) and Built In (Chicago + remote).
+"""Harvest job postings from LinkedIn (public search) and Built In, for what profile/profile.json asks for.
 
-Stage 1 of the search: cheap, deterministic, no AI. Pulls every listing for each
-query x location, drops titles that can't fit, dedupes, then fetches the full
-description for the survivors. Claude judges the survivors (prompts/find-jobs.md).
+Stage 1 of the search: cheap, deterministic, no AI. Pulls every listing for each search term x place
+(her cities within her radius, plus US remote if she wants it), drops titles that can't fit, dedupes,
+then fetches the full description for the survivors. Claude judges the survivors (prompts/find-jobs.md).
 
 Usage: python3 scripts/harvest.py [--days 1] [--pages 5] [--out data]
 """
@@ -13,30 +13,51 @@ LIST = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?"
 DETAIL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/"
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130 Safari/537.36"}
 
-QUERIES = [
-    "research analyst", "research associate", "research assistant", "economic analyst",
-    "economic consulting", "economist", "policy analyst", "market research analyst",
-    "data analyst", "business analyst", "strategy analyst", "pricing analyst",
-    "energy analyst", "market analyst", "consulting analyst", "investment research",
-    "credit analyst", "insights analyst", "analyst",
-]
-# f_WT=2 is remote. LinkedIn's default 25-mile radius around Chicago covers Evanston and Schaumburg.
-LOCATIONS = [
-    {"location": "Chicago, Illinois"},
-    {"location": "United States", "f_WT": "2"},
-]
+PROFILE = Path("profile/profile.json")
+LEVEL = {"internship": "1", "entry": "2", "associate": "3", "mid-senior": "4", "director": "5"}   # LinkedIn f_E
+JOB_TYPE = {"full-time": "F", "part-time": "P", "contract": "C", "temporary": "T", "internship": "I"}   # LinkedIn f_JT
+SENIOR = ["senior", "sr", "lead", "principal", "director", "manager", "head", "vp", "vice president", "chief", "staff", "iii", "iv"]
+# Built In has city sites for these; anywhere else it's LinkedIn (+ remote) only.
+BUILTIN_CITIES = {"chicago": "https://www.builtinchicago.org", "new york": "https://www.builtinnyc.com", "boston": "https://www.builtinboston.com",
+                  "los angeles": "https://www.builtinla.com", "seattle": "https://www.builtinseattle.com", "san francisco": "https://www.builtinsf.com",
+                  "austin": "https://www.builtinaustin.com", "denver": "https://www.builtincolorado.com", "colorado": "https://www.builtincolorado.com"}
 
-# ponytail: regex title screen. It only removes obvious misfits; Claude reads everything that survives.
-EXCLUDE = re.compile(
-    r"\b(senior|sr\.?|lead|principal|director|manager|head|vp|vice president|chief|staff|"
-    r"intern|internship|co-?op|fellowship|sales|account executive|business development|bdr|sdr|"
-    r"engineer|developer|software|devops|architect|nurse|clinical|physician|therapist|"
-    r"teacher|driver|technician|mechanic|warehouse|retail|store|cashier|real estate|leasing|"
-    r"loan officer|insurance agent|recruiter|customer service|call center|payroll|bookkeeper|"
-    r"accountant|tax|audit|iii|iv)\b", re.I)
-NEAR = re.compile(r", IL\b|Illinois|Chicago", re.I)
-INCLUDE = re.compile(
-    r"analyst|research|economi|associate|consult|policy|insight|strategy|pricing|market|intelligence", re.I)
+
+def words(ws, end=True):
+    """Title regex from plain words. Exclusions match whole words ('intern' must not hit 'international');
+    inclusions match word starts ('economi' hits 'economist')."""
+    return re.compile(r"\b(?:" + "|".join(re.escape(w) for w in ws) + (r")\b" if end else ")"), re.I) if ws else None
+
+
+def settings(path=PROFILE):
+    """Search plan from her profile: queries, LinkedIn params per place, Built In lists, title filters."""
+    if not path.exists():
+        raise SystemExit("No profile/profile.json yet: set what you're looking for on the Profile page.")
+    p = json.loads(path.read_text())
+    places = [x for x in p.get("locations") or [] if x.strip()]
+    if not p.get("search_terms") or not (places or p.get("remote")):
+        raise SystemExit("profile/profile.json needs job-board searches and a city or remote: set them on the Profile page.")
+    level, types = p.get("level") or "entry", p.get("job_types") or []
+    base = {"f_E": LEVEL.get(level, "2")}
+    if [t for t in types if t in JOB_TYPE]:
+        base["f_JT"] = ",".join(JOB_TYPE[t] for t in types if t in JOB_TYPE)
+    linkedin = [dict(base, location=x, distance=str(p.get("radius_miles") or 25), via="local") for x in places]
+    path_ = "/jobs/entry-level?" if level in ("internship", "entry") else "/jobs?"
+    builtin = sorted({(host + path_, "local") for x in places for city, host in BUILTIN_CITIES.items() if city in x.lower()})
+    if p.get("remote"):
+        linkedin.append(dict(base, location="United States", f_WT="2", via="remote"))
+        builtin.append(("https://builtin.com/jobs/remote" + ("/entry-level?" if level in ("internship", "entry") else "?"), "remote"))
+    skip = list(p.get("exclude_titles") or [])
+    if level in ("internship", "entry", "associate"):
+        skip += SENIOR
+    if level != "internship" and "internship" not in types:
+        skip += ["intern", "internship"]
+    return {"queries": p["search_terms"], "linkedin": linkedin, "builtin": builtin,
+            "exclude": words(skip), "include": words(p.get("include_titles") or [], end=False)}
+
+
+def fits(title, s):
+    return not (s["exclude"] and s["exclude"].search(title)) and (not s["include"] or s["include"].search(title))
 
 
 def get(url, tries=4):
@@ -120,28 +141,27 @@ def detail(job):
     return job
 
 
-BUILTIN_LISTS = ["https://www.builtinchicago.org/jobs/entry-level?", "https://builtin.com/jobs/remote/entry-level?"]
-
-
-def builtin(queries, days, pages):
-    """Built In (Chicago + remote): entry-level search pages, then each job's JSON-LD."""
+def builtin(s, days, pages):
+    """Built In city and remote search pages, then each job's JSON-LD."""
     import datetime as dt
     cutoff = (dt.date.today() - dt.timedelta(days=days)).isoformat()
-    links = set()
-    for q in queries:
-        for base in BUILTIN_LISTS:
+    links, via = set(), {}
+    for q in s["queries"]:
+        for base, where in s["builtin"]:
             for p in range(1, pages + 1):
                 host = base.split("/jobs")[0]
                 found = {host + m for m in re.findall(r'/job/[a-z0-9-]+/\d+', get(base + urllib.parse.urlencode({"search": q, "page": p})))}
                 if not found - links:
                     break
                 links |= found
+                for u in found:
+                    via.setdefault(u, where)
     # The slug is the title: drop obvious misfits before paying ~2s (and 429 risk) per page.
-    links = {u for u in links if not EXCLUDE.search(u.split("/job/")[1].rsplit("/", 1)[0].replace("-", " "))}
+    links = {u for u in links if fits(u.split("/job/")[1].rsplit("/", 1)[0].replace("-", " "), s)}
     jobs = []
     for url in sorted(links):
         if url in CACHE:
-            jobs += [j for j in CACHE[url]["value"] if j["posted"] >= cutoff]
+            jobs += [dict(j, via=via[url]) for j in CACHE[url]["value"] if j["posted"] >= cutoff]
             continue
         page = get(url)
         found = []
@@ -167,9 +187,9 @@ def builtin(queries, days, pages):
                 })
         if page:
             remember(url, found)
-        jobs += [j for j in found if j["posted"] >= cutoff]
+        jobs += [dict(j, via=via[url]) for j in found if j["posted"] >= cutoff]
         time.sleep(2)  # Built In returns 429 below ~1 request/second
-    return [j for j in jobs if INCLUDE.search(j["title"]) and not EXCLUDE.search(j["title"])]
+    return [j for j in jobs if fits(j["title"], s)]
 
 
 def main():
@@ -179,18 +199,19 @@ def main():
     ap.add_argument("--out", default="data")
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(exist_ok=True)
+    s = settings()
     load_cache(out / "harvest-cache.jsonl")
 
     seen, raw = {}, 0
-    for q in QUERIES:
-        for loc in LOCATIONS:
+    for q in s["queries"]:
+        for loc in s["linkedin"]:
             for p in range(a.pages):
-                params = {"keywords": q, "f_E": "2", "f_JT": "F", "f_TPR": f"r{a.days * 86400}", "start": p * 10, **loc}
+                params = {"keywords": q, "f_TPR": f"r{a.days * 86400}", "start": p * 10, **{k: v for k, v in loc.items() if k != "via"}}
                 cards = list(parse_cards(get(LIST + urllib.parse.urlencode(params))))
                 raw += len(cards)
                 for c in cards:
-                    if c["id"] not in seen and INCLUDE.search(c["title"]) and not EXCLUDE.search(c["title"]):
-                        seen[c["id"]] = c
+                    if c["id"] not in seen and fits(c["title"], s):
+                        seen[c["id"]] = dict(c, via=loc["via"])
                 if len(cards) < 10:
                     break
                 time.sleep(0.7)
@@ -199,17 +220,17 @@ def main():
     jobs = list(seen.values())
     # ponytail: one request at a time with a pause; 4 threads drew 429s from LinkedIn on a 1,100-job week.
     jobs = [detail(j) for j in jobs]
-    bi = builtin(QUERIES, a.days, a.pages)
+    bi = builtin(s, a.days, a.pages)
     print(f"builtin: {len(bi)}", file=sys.stderr)
     # Same job on several boards or under several IDs: dedupe by company + title + location.
     uniq = {}
     for j in jobs + bi:
         uniq.setdefault((j["company"].lower(), j["title"].lower(), j["location"].lower()), j)
     jobs = list(uniq.values())
-    # The guest API ignores f_WT, so the "remote" query returns on-site jobs nationwide.
-    # Keep Chicagoland, bare "United States", or anything whose text says remote; Claude verifies.
+    # The guest API ignores f_WT, so the remote search returns on-site jobs nationwide. Keep everything
+    # found near her cities; from the remote search keep only what says remote. Claude verifies.
     jobs = [j for j in jobs if j.get("description") and (
-        NEAR.search(j["location"]) or j["location"].strip() in ("United States", "US", "Remote")
+        j.pop("via") == "local" or j["location"].strip() in ("United States", "US", "Remote")
         or re.search(r"\bremote\b", j["title"] + " " + j["description"], re.I))]
 
     import datetime as dt
@@ -237,6 +258,18 @@ def _check():
     assert detail({"id": "1"})["description"] == "Hello" and calls == []   # reused, not fetched
     detail({"id": "2"})
     assert len(calls) == 1                                      # the failed one is fetched again
+    # The search follows the profile: places, remote, level, filters.
+    prof = path.parent / "p.json"
+    prof.write_text(json.dumps({"search_terms": ["nurse"], "locations": ["Boston, MA"], "radius_miles": 10, "remote": False,
+                                "level": "mid-senior", "job_types": ["full-time", "contract"], "exclude_titles": ["travel"]}))
+    s = settings(prof)
+    assert s["queries"] == ["nurse"] and s["linkedin"] == [{"f_E": "4", "f_JT": "F,C", "location": "Boston, MA", "distance": "10", "via": "local"}]
+    assert s["builtin"] == [("https://www.builtinboston.com/jobs?", "local")]
+    assert fits("Senior Nurse", s) and not fits("Travel Nurse", s) and not fits("Nurse Intern", s)
+    prof.write_text(json.dumps({"search_terms": ["analyst"], "locations": [], "remote": True, "include_titles": ["economi"]}))
+    s = settings(prof)
+    assert [l["via"] for l in s["linkedin"]] == ["remote"] and s["builtin"][0][0].endswith("/remote/entry-level?")
+    assert fits("Economist", s) and not fits("Senior Economist", s) and not fits("Data Analyst", s) and fits("International Economics Analyst", s)
     print("harvest ok")
 
 

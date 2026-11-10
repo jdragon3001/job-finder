@@ -22,18 +22,18 @@ Nothing is sent for you: emails become Gmail drafts, LinkedIn notes are copy-pas
    It puts everything in a `job-finder` folder in your home folder, adds whatever's missing (Node, Python,
    Claude Code, and on Windows Git Bash) without admin rights, and asks you to log in to Claude.
    Run the same line again later to update; your profile and data stay.
-2. **Your profile** — in `~/job-finder/profile/` (git-ignored, never uploaded):
-   - `profile.yaml`: what you want, where, pay floor, experience rule.
-   - `profile/facts.md`: every fact and approved resume bullet Claude may use (shape: `profile/facts.example.md`).
-     Easiest: put your resume, cover letters and a few emails in `profile/uploads/` and ask Claude Code to
-     "write profile/facts.md from my uploads following profile/facts.example.md", then read it carefully.
-   - `profile/resume.docx` and `profile/cover.docx`: your real Word files (Google Docs: File → Download →
-     Microsoft Word). A PDF converted to Word won't do — tailoring edits your exact file.
-   - Searching outside Chicago? Change `LOCATIONS` and `NEAR` at the top of `scripts/harvest.py` and the
-     Built In city in `BUILTIN_LISTS`.
-3. **Optional** — `cp .env.example .env` and add a Gmail app password (drafts + status) and a Treg key (emails).
-4. **Start** by double-clicking **Start Job Finder** in the `job-finder` folder (`start.sh` on Linux).
-   Keep the window it opens; the dashboard opens at <http://localhost:3456>. The first search run starts by itself and takes a while.
+2. **Start** by double-clicking **Start Job Finder** in the `job-finder` folder (`start.sh` on Linux).
+   Keep the window it opens; the dashboard opens at <http://localhost:3456>.
+3. **Profile** (left sidebar) — everything else happens here, no folders to dig through:
+   - Upload your real resume and cover letter as Word files (Google Docs: File → Download → Microsoft Word).
+   - **Talk it through with Claude**: it asks what you've done and liked, suggests kinds of jobs if you're
+     not sure, and fills in your search — job types, cities, distance, remote/hybrid/on-site, level, pay.
+     Every setting shows on the page; press Edit to change any of it.
+   - Drop in past resumes, cover letters and a few emails you wrote, then press **Build my profile**.
+     Claude writes down the facts it may use about you; read them over and fix anything on the same page.
+   - Optional: connect Gmail (drafts + replies) and paste a Treg key (contact emails).
+   The **Guide** button in the sidebar shows what's left and what to do next. The first search starts by itself
+   once your search is set.
 
 Working on the code instead? Clone the repo, then `npm install && npm run dev`.
 

@@ -5,7 +5,7 @@ act on it. You write files and inbox lines; `scripts/ingest.py` is the only thin
 
 ## 0. Read first
 - The job: `python3 scripts/q.py --json "select key, title, company, location, url, description, why, net from jobs where key='<key>'"`
-- `profile/profile.yaml`, `profile/facts.md` (the only source of facts about her — never claim anything not in it),
+- `profile/profile.json`, `profile/facts.md` (the only source of facts about her — never claim anything not in it),
   and her writing in `profile/uploads/` for voice: `cover-letters/`, `writing/` (networking email), `context/` (project notes for interviews and emails), `resumes/` (all variants).
 - `slug` = the key with every non-alphanumeric run replaced by `-`. Work in `data/materials/<slug>/`.
 
@@ -17,7 +17,7 @@ Never log in anywhere, never use her LinkedIn account, never bypass a CAPTCHA.
 |---|---|---|
 | manager | leads the team this role sits on (the hiring manager if the posting names one) | same office as the job |
 | recruiter | campus / early-career / talent recruiter for this office or function | same office |
-| alum | went to her school (`profile.yaml` → school) and works in a similar role there | similar role, same office |
+| alum | went to her school (`profile.json` → school) and works in a similar role there | similar role, same office |
 
 For a networking-only firm (`net=1`) the manager is someone who leads analysts in her city's office.
 Pick the best of each kind as chosen; any others you found are alternates (`"chosen": false`). Only
@@ -37,7 +37,7 @@ If nothing, leave `email` empty — never guess an address.
   Make the "with …" part fit the person (alum: the shared school; recruiter: the role; manager: the team's work).
 - **Email** 5–6 sentences, sent after the note, so it may open "I just sent you a connection request on LinkedIn."
   One concrete story from `facts.md` that matches the job. Close by asking for 15 minutes. Manager email says the resume is attached; others do not.
-  Subject: `profile.yaml` → `email_subject` with `{role}` and `{company}` filled.
+  Subject: `profile.json` → `email_subject` with `{role}` and `{company}` filled.
 - Voice rules from `facts.md` → Voice. At most one of "incredibly grateful" / "excited to" / "passion" per message.
   Never: "leverage", "synergy", "I am writing to express", em-dash chains.
 

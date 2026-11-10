@@ -1,6 +1,6 @@
 # Daily run
 
-The dashboard starts this once a day, when the last run is over 24 hours old. Goal: by the end, every new listing in her locations (`profile.yaml`) that fits
+The dashboard starts this once a day, when the last run is over 24 hours old. Goal: by the end, every new listing in her places (`profile/profile.json`) that fits
 the person in `profile/` is in `data/jobs.db` with a verdict, and nothing that doesn't fit is.
 
 Work from the project root. Today's date is in `date +%F`; call it `TODAY`. `DAYS` is given at the end of

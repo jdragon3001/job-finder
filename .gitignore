@@ -1,6 +1,5 @@
 # Personal data — never published
 profile/*
-!profile/profile.example.yaml
 !profile/facts.example.md
 .env
 data/

@@ -239,6 +239,9 @@ def _check():
 if __name__ == "__main__":
     if "--check" in sys.argv:
         _check(); sys.exit(0)
+    if len(sys.argv) == 3 and sys.argv[1] == "text":   # plain text of any .docx, one paragraph per line
+        doc = re.sub(r"<w:(?:tab|br)/>", "<w:t>   </w:t>", zipfile.ZipFile(sys.argv[2]).read(DOC).decode())
+        print("\n".join(t for t in (para_text(p).strip() for p in PARA.findall(doc)) if t)); sys.exit(0)
     if len(sys.argv) != 5 or sys.argv[1] not in ("resume", "cover"):
         print(__doc__); sys.exit(2)
     try:

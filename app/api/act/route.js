@@ -1,6 +1,6 @@
 import { decide, undo, setNote, swap, applyOpened } from '../../../lib/store.js';
 import { start, pump, UNDO_GRACE_MS } from '../../../lib/runner.js';
-import { getDb, py, gmailConfigured } from '../../../lib/server.js';
+import { getDb, py, gmailConfigured, saveEnv, canSearch } from '../../../lib/server.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +9,8 @@ const id = (b) => Number.isInteger(b.personId) ? b.personId : null;
 const bad = (msg) => Response.json({ error: msg }, { status: 400 });
 
 export async function POST(req) {
+  // A JSON content type forces a CORS preflight, so other websites can't post here (this route can write .env).
+  if (!req.headers.get('content-type')?.startsWith('application/json')) return bad('content-type must be application/json');
   let b;
   try { b = await req.json(); } catch { return bad('body must be JSON'); }
   const db = getDb();
@@ -29,7 +31,7 @@ export async function POST(req) {
         db.prepare(`update jobs set prep='queued' where key=? and prep='failed'`).run(b.key);
         pump(db); return Response.json({ ok: true });
       }
-      case 'run': return Response.json({ started: start(db, 'daily') });
+      case 'run': return canSearch() ? Response.json({ started: start(db, 'daily') }) : Response.json({ error: 'Tell it what you’re looking for on your Profile first' }, { status: 409 });
       case 'draft': {
         if (!id(b)) return bad('personId must be an integer');
         if (!gmailConfigured()) return Response.json({ error: 'Gmail not connected' }, { status: 409 });
@@ -40,6 +42,13 @@ export async function POST(req) {
         if (!gmailConfigured()) return Response.json({ error: 'Gmail not connected' }, { status: 409 });
         const r = await py(['scripts/gmail.py', 'sync']);
         return r.ok ? Response.json(JSON.parse(r.out)) : Response.json({ error: r.err }, { status: 502 });
+      }
+      case 'env': {
+        if (!b.values || typeof b.values !== 'object') return bad('values must be an object');
+        saveEnv(b.values);
+        if (!b.values.GMAIL_APP_PASSWORD) return Response.json({ ok: true });
+        const r = await py(['scripts/gmail.py', 'sync']);   // proves the login works
+        return r.ok ? Response.json({ ok: true }) : Response.json({ error: 'Saved, but Gmail refused the login: ' + r.err }, { status: 502 });
       }
       default: return bad('unknown action');
     }

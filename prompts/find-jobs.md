@@ -6,10 +6,12 @@ fits wastes her morning; a good fit you reject is a job she never hears about. B
 
 ## Who she is
 
-Read `profile/profile.yaml` and `profile/facts.md` before anything else: background, what she wants
-(`wants`, in priority order), what she never wants (`never`), tools, locations, work mode, pay floor and
-`experience_rule`. **The profile wins** wherever it differs from the defaults and examples below, which were
-written for the first user (a recent economics graduate in Chicago aiming at research and analyst roles).
+Read `profile/profile.json` and `profile/facts.md` before anything else. The profile is what she asked for:
+`wants` (kinds of jobs, best first), `never`, `tools`, `locations` + `radius_miles` + `remote`, `work_modes`,
+`level`, `job_types`, `pay_floor` / `pay_floor_remote`, `experience_rule`, and `notes` (anything else — read it,
+it often holds the deciding detail). **Every rule below is read from it.** The examples further down were
+written for the first user (an entry-level economics graduate in Chicago); apply the same reasoning to
+whoever this profile describes, never her specifics.
 
 ## Inputs
 
@@ -29,16 +31,15 @@ that decided each rule.
 
 | Rule | Passes | Fails |
 |---|---|---|
-| **Experience** | No years required; a range starting at 0 ("0–2 years", "0–3 years"); "entry level"; "recent graduates"; years listed only under *preferred*; "degree **or** N years". **Stretch** (pass, flag `stretch`): exactly 1 year of *general* experience ("1+ years of professional experience", "minimum 1 year") — her nonprofit year might count | 2+ years required, of anything; any years tied to a field she has not worked in ("1–2 years in financial analysis", "1+ years of research or analytics", "1 year at a Big 4 firm", "prior consulting experience required"); "internship experience required" (she has none) |
-| **Programming** | Python, R, SQL, Stata, SAS, VBA only "preferred", "a plus", "familiarity", "willing to learn"; Excel/Tableau/SPSS required is fine; "Excel, Stata or R" (any one) is fine | Any programming language under *required/minimum/must have* |
-| **Location** | Chicago and any Chicagoland suburb (Evanston, Schaumburg, Naperville, Oak Brook, Downers Grove, Lake Forest…); fully remote in the US with Illinois eligible | Wisconsin; on-site in other states; remote that excludes Illinois; far-out Illinois towns (Rockford, Peoria, Springfield…) |
-| **Work mode** | Hybrid or remote; on-site is OK only if the commute is inside Chicago/Evanston | — (flag if unstated) |
-| **Pay** | Posted midpoint ≥ $65K (hybrid/on-site) or ≥ $55K (remote); **no pay posted = keep, flag "pay unknown"** | Posted midpoint under the floor; hourly roles that annualize under it; commission-based pay |
-| **Type** | Full-time, salaried or hourly W-2 | Internship, part-time, 1099/contract-to-nowhere, unpaid, stipend fellowship |
-| **Grad window** | Open to people who already graduated, or no window stated | Campus programs limited to current students or a future graduation window her `grad_year` misses |
-| **Education** | Bachelor's | PhD required (master's required → keep in a separate `needs_masters` list) |
-| **Not sales** | Presents findings to clients is fine | Quota, pipeline, prospecting, lead generation, cold outreach, "drive revenue", account management, building pitch decks to win business, "client acquisition" |
-| **Not CRE** | — | Commercial real estate brokerage, research or investment |
+| **Experience** | Within `experience_rule` and `level`. For entry level: no years required, a range starting at 0, "recent graduates", years only under *preferred*, "degree **or** N years". **Stretch** (pass, flag `stretch`): one notch above what the rule allows, if the rule says stretches are OK | More years than the rule allows; years tied to a field she hasn't worked in (check `facts.md`); "internship experience required" when she has none |
+| **Required skills** | Required skills she has (`tools`, `facts.md`) or plainly could learn on the job; anything only "preferred", "a plus", "familiarity" | A required skill, license or certification she clearly lacks (a programming language, an RN license, a CPA…) |
+| **Location** | Within `radius_miles` of one of her `locations`; fully remote in her country if `remote` is on (respect any state limits the posting names and anything in `notes`) | Elsewhere; remote that excludes where she lives |
+| **Work mode** | One of her `work_modes` | A mode she didn't pick (flag if unstated) |
+| **Pay** | Posted midpoint ≥ `pay_floor` (in person/hybrid) or ≥ `pay_floor_remote` (remote); a floor of 0 means any; **no pay posted = keep, flag "pay unknown"** | Midpoint under the floor; hourly pay that annualizes under it; commission-only pay |
+| **Type** | One of her `job_types` | Any other (internship, part-time, contract, unpaid… unless she picked it) |
+| **Grad window** | Open to her graduation status (`grad`), or no window stated | Programs limited to current students or a graduation window she misses |
+| **Education** | Her `degree` meets it | Requires a degree she doesn't have (master's required when she has a bachelor's → keep in a separate `needs_masters` list) |
+| **Never** | — | Anything in `never`: judge by what the job really is, not keywords ("presents findings to clients" isn't sales; quota, pipeline, prospecting and cold outreach are) |
 
 ## Step 2: junk detection (reject even if every rule passes)
 
@@ -57,17 +58,20 @@ These listings look like fits and are not. Reject them and say which pattern:
 
 | Factor | Points | How |
 |---|---|---|
-| Role category | 30 | Economic consulting 30 · Economic/policy research 26 · Tech/energy market research 22 · Financial-markets research 18 · Strategy consulting 12 · Other genuine analysis 10 |
-| Substance | 20 | Core work is analysis, modeling, research, writing = 20 · mixed = 10 · mostly operational = 0 |
-| No sales | 15 | None = 15 · presents to clients = 10 · any sales language in passing = 0 |
-| Employer quality | 10 | Recognized firm, structured analyst/RA program, research institute, Fed, university = 10 · established company = 6 · unknown/small = 3 |
-| Pay | 10 | ≥ $80K = 10 · $70–80K = 8 · at floor = 5 · unknown = 3 |
-| Work mode & place | 10 | Evanston/Chicago hybrid ~3 days = 10 · remote = 8 · other Chicagoland = 7 · on-site Chicago = 5 |
-| Entry fit | 5 | Explicitly for recent grads or 0–2 years = 5 · silent on experience = 3 |
+| Role category | 30 | How well it matches `wants`, which is in priority order: the first item 30, then step down evenly to 12 for the last; any other genuinely relevant role 10 |
+| Substance | 20 | The core work is what that kind of job should be (analysis, care, building, teaching…) = 20 · mixed = 10 · mostly something else = 0 |
+| Fits her `never` | 15 | Nothing near it = 15 · brushes it = 10 · real overlap = 0 |
+| Employer quality | 10 | Recognized employer or structured program for her level = 10 · established company = 6 · unknown/small = 3 |
+| Pay | 10 | Well above her floor = 10 · comfortably above = 8 · at the floor = 5 · unknown = 3 |
+| Work mode & place | 10 | Her first-listed city and preferred mode = 10, scaling down with distance and less-preferred modes |
+| Level fit | 5 | Pitched exactly at her `level` = 5 · silent = 3 |
 
 Keep everything scoring **55+**. Do not cap the count; if 80 listings genuinely pass, return 80.
 
-## Calibration
+`category` in your output must be copied exactly from her `wants` (the closest one), or `Other`. The
+dashboard's filters are those words.
+
+## Calibration (examples from the first user: an entry-level economics grad who knows Stata; reason the same way for this profile)
 
 - *"Bachelor's in economics, finance or related field. Proficiency in Excel. Experience with Stata or
   Python preferred."* → Programming **passes** (preferred only).
